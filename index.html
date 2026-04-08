@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+  <meta charset="UTF-8"/>
+  <title>3D Соронзон Дэлхий</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #00000f;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+    #info-panel {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      background: rgba(0,0,0,0.75);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 13px;
+      line-height: 1.8;
+      z-index: 10;
+      min-width: 290px;
+      pointer-events: none;
+    }
+    #info-panel h2 { font-size: 17px; margin-bottom: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .dot {
+      display: inline-block; width: 13px; height: 13px;
+      border-radius: 50%; flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="info-panel">
+    <h2>🌍 3D Соронзон Дэлхий</h2>
+    <p>🖱️ Дэлхийг чирж эргүүлнэ | Scroll-ээр томруулна<br>
+       👆 Луужин чирэх боломжтой</p>
+    <div class="legend-item"><span class="dot" style="background:#ff2222"></span> Улаан шугам = Соронзон Хойд туйл (N)</div>
+    <div class="legend-item"><span class="dot" style="background:#eeeeee"></span> Цагаан шугам = Соронзон Өмнөд туйл (S)</div>
+    <div class="legend-item"><span class="dot" style="background:#ffdd44"></span> Соронзон орон (шар шугамууд)</div>
+    <hr style="border-color: rgba(255,255,255,0.2); margin: 8px 0;">
+    <p style="font-size:11px; opacity:0.8;">
+      Дэлхийн соронзон тэнхлэг нь эргэлтийн тэнхлэгээс ~11.5° хазайсан байдаг.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script>
+  window.addEventListener('load', function () {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.8, 5.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    // Orbit controls
+    let isOrbitDragging = false;
+    let prevMouse = { x: 0, y: 0 };
+    let spherical = { theta: Math.PI * 0.2, phi: Math.PI / 3 };
+    let targetSpherical = { ...spherical };
+    let radius = 5.2;
+
+    function updateCamera() {
+      camera.position.x = radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+      camera.position.y = radius * Math.cos(spherical.phi);
+      camera.position.z = radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+      camera.lookAt(0, 0, 0);
+    }
+
+    // Realistic Earth
+    const earthGroup = new THREE.Group();
+    earthGroup.rotation.z = THREE.MathUtils.degToRad(23.5);
+    scene.add(earthGroup);
+
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 64, 64),
+      new THREE.MeshPhongMaterial({ shininess: 25 })
+    );
+    earthGroup.add(earth);
+
+    new THREE.TextureLoader().load(
+      'https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg',
+      tex => { earth.material.map = tex; earth.material.needsUpdate = true; }
+    );
+
+    // Magnetic group (tilted)
+    const magGroup = new THREE.Group();
+    magGroup.rotation.z = THREE.MathUtils.degToRad(11.5);
+    scene.add(magGroup);
+
+    // Clean yellow magnetic field lines
+    function makeFieldLine(L, opacity) {
+      const pts = [];
+      for (let i = 0; i <= 160; i++) {
+        const t = i / 160;
+        const theta = Math.PI * t;
+        const r = L * Math.pow(Math.sin(theta), 2) * 0.95;
+        pts.push(new THREE.Vector3(r * Math.sin(theta), r * Math.cos(theta), 0));
+      }
+      const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.011, 8, false);
+      return new THREE.Mesh(tube, new THREE.MeshBasicMaterial({
+        color: 0xffdd44, transparent: true, opacity: opacity, side: THREE.DoubleSide
+      }));
+    }
+
+    const fieldConfigs = [
+      {L: 1.55, opacity: 0.95},
+      {L: 2.15, opacity: 0.78},
+      {L: 2.85, opacity: 0.52},
+    ];
+    fieldConfigs.forEach(cfg => {
+      for (let ang = 0; ang < 360; ang += 45) {
+        const line = makeFieldLine(cfg.L, cfg.opacity);
+        line.rotation.y = THREE.MathUtils.degToRad(ang);
+        magGroup.add(line);
+      }
+    });
+
+    // === POLES ON EARTH - EXACTLY AS YOU WANTED ===
+    const poleGeo = new THREE.SphereGeometry(0.08, 16, 16);
+
+    // Top pole (geographic North) = N + RED
+    const northPole = new THREE.Mesh(poleGeo, new THREE.MeshBasicMaterial({color: 0xff2222}));
+    northPole.position.set(0, 1.12, 0);
+    magGroup.add(northPole);
+
+    // Bottom pole (geographic South) = S + WHITE
+    const southPole = new THREE.Mesh(poleGeo, new THREE.MeshBasicMaterial({color: 0xeeeeee}));
+    southPole.position.set(0, -1.12, 0);
+    magGroup.add(southPole);
+
+    // N and S labels on Earth poles
+    function makePoleLabel(text, pos) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 100; canvas.height = 60;
+      const ctx = canvas.getContext('2d');
+      ctx.font = 'bold 42px Arial';
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, 50, 45);
+      const tex = new THREE.CanvasTexture(canvas);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: tex, transparent: true}));
+      sprite.scale.set(0.6, 0.36, 1);
+      sprite.position.copy(pos);
+      magGroup.add(sprite);
+    }
+    makePoleLabel("N", new THREE.Vector3(0, 1.52, 0));
+    makePoleLabel("S", new THREE.Vector3(0, -1.52, 0));
+
+    // Draggable red-white compass needle
+    let needleGroup = new THREE.Group();
+    needleGroup.position.set(2.8, 0.4, 0);
+    scene.add(needleGroup);
+
+    // Red part (North)
+    const redPart = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.78, 0.04),
+      new THREE.MeshPhongMaterial({ color: 0xff2222 })
+    );
+    redPart.position.set(0, 0.39, 0);
+    needleGroup.add(redPart);
+
+    // White part (South)
+    const whitePart = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.36, 0.04),
+      new THREE.MeshPhongMaterial({ color: 0xeeeeee })
+    );
+    whitePart.position.set(0, -0.18, 0);
+    needleGroup.add(whitePart);
+
+    // Center knob
+    const knob = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 20, 20),
+      new THREE.MeshPhongMaterial({ color: 0x555555 })
+    );
+    knob.position.y = 0;
+    needleGroup.add(knob);
+
+    // N and S labels on the needle
+    function makeNeedleLabel(text, color, yOffset) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.font = 'bold 38px Arial';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(text, 32, 42);
+      const tex = new THREE.CanvasTexture(canvas);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: tex, transparent: true}));
+      sprite.scale.set(0.22, 0.22, 1);
+      sprite.position.set(0, yOffset, 0);
+      needleGroup.add(sprite);
+    }
+    makeNeedleLabel("N", "#ffffff", 0.68);
+    makeNeedleLabel("S", "#222222", -0.32);
+
+    // Dragging
+    let isDragging = false;
+    let dragPlane = new THREE.Plane();
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    const invTilt = new THREE.Matrix4().makeRotationZ(-THREE.MathUtils.degToRad(11.5));
+    const fwdTilt = new THREE.Matrix4().makeRotationZ(THREE.MathUtils.degToRad(11.5));
+
+    function getDipoleDirection(worldPos) {
+      const p = worldPos.clone().applyMatrix4(invTilt);
+      const r = p.length();
+      const rHat = p.normalize();
+      const m = new THREE.Vector3(0, 1, 0);
+      let B = rHat.clone().multiplyScalar(3 * m.dot(rHat)).sub(m).divideScalar(r * r * r);
+      return B.applyMatrix4(fwdTilt).normalize();
+    }
+
+    function onPointerDown(e) {
+      pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+      pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const intersects = raycaster.intersectObjects(needleGroup.children, true);
+      if (intersects.length > 0) {
+        isDragging = true;
+        isOrbitDragging = false;
+
+        const camDir = new THREE.Vector3();
+        camera.getWorldDirection(camDir);
+        dragPlane.setFromNormalAndCoplanarPoint(camDir.negate(), needleGroup.position);
+      }
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+
+      pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+      pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const point = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(dragPlane, point)) {
+        needleGroup.position.copy(point);
+
+        const dist = needleGroup.position.length();
+        if (dist < 1.7) needleGroup.position.normalize().multiplyScalar(1.7);
+        if (dist > 4.5) needleGroup.position.normalize().multiplyScalar(4.5);
+      }
+    }
+
+    function onPointerUp() {
+      isDragging = false;
+    }
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    // Orbit controls
+    renderer.domElement.addEventListener('mousedown', e => {
+      if (isDragging) return;
+      isOrbitDragging = true;
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('mouseup', () => isOrbitDragging = false);
+    window.addEventListener('mousemove', e => {
+      if (!isOrbitDragging || isDragging) return;
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      targetSpherical.theta -= dx * 0.0045;
+      targetSpherical.phi = Math.max(0.3, Math.min(Math.PI - 0.3, targetSpherical.phi + dy * 0.0045));
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+    renderer.domElement.addEventListener('wheel', e => {
+      radius = Math.max(3, Math.min(12, radius + e.deltaY * 0.008));
+    });
+
+    // Lighting + Stars
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const sunLight = new THREE.DirectionalLight(0xfff8e8, 1.35);
+    sunLight.position.set(8, 6, 5);
+    scene.add(sunLight);
+
+    const starVertices = [];
+    for (let i = 0; i < 6000; i++) {
+      starVertices.push((Math.random()-0.5)*800, (Math.random()-0.5)*800, (Math.random()-0.5)*800);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.18})));
+
+    // Animation
+    function animate() {
+      requestAnimationFrame(animate);
+
+      spherical.theta += (targetSpherical.theta - spherical.theta) * 0.085;
+      spherical.phi += (targetSpherical.phi - spherical.phi) * 0.085;
+      updateCamera();
+
+      earth.rotation.y += 0.0004;
+
+      if (needleGroup) {
+        const B = getDipoleDirection(needleGroup.position);
+        needleGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  });
+  </script>
+</body>
+</html>
